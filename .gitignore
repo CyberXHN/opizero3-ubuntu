@@ -1,0 +1,42 @@
+# ===== Scratch checkouts of cloned source trees =====
+/linux/
+/linux-stable/
+/uboot-build/
+/work/
+/src/
+
+# ===== Card images and downloaded large files =====
+/downloads/
+*.img
+*.img.xz
+*.tar.gz
+*.tar.xz
+*.zip
+*.7z
+*.deb
+*.bin
+
+# ===== rootfs staging / chroot work directories =====
+/rootfs/
+/chroot/
+/mnt/
+/build/
+
+# ===== Local build overrides (sourced by docker/run.sh and docker/run-card.sh) =====
+/docker/local.env
+
+# ===== Local-only documentation (not tracked) =====
+/docs/
+
+# ===== Logs =====
+*.log
+
+# ===== Python =====
+__pycache__/
+.venv/
+*.pyc
+
+# ===== Editor / OS =====
+*.swp
+*~
+.DS_Store

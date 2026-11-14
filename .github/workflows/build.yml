@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (c) 2026 CyberXHN
+# Build the OrangePi Zero3 (H618) TF card image: cross-compile TF-A BL31 + U-Boot
+# and assemble the Ubuntu rootfs image. Manual trigger; the image always lands in
+# a short-lived workflow artifact, and optionally in a GitHub Release on a custom
+# tag (create_release + release_tag inputs, default: artifact only).
+
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: Publish the image as a GitHub Release on a custom tag
+        type: boolean
+        default: false
+      release_tag:
+        description: Tag name for that release (e.g. v2026.11.14); required when create_release is set
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  # Apt archive freeze: build-card.sh's chroot apt phase resolves against the
+  # snapshot.ubuntu.com snapshot below -- kernel and every other package are
+  # pinned to how the archive looked on that UTC timestamp. Move forward by
+  # bumping this one constant (snapshots are taken daily, ID format
+  # YYYYMMDDTHHMMSSZ); see docker/build-card.sh for the exact mechanics and
+  # coverage scope.
+  APT_SNAPSHOT: "20261113T030400Z"
+  # Full command tracing (set -x, timestamped PS4) in both container build
+  # scripts: CI logs are the only record, so keep them complete. Local builds
+  # leave DEBUG unset (normal verbosity).
+  DEBUG: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    steps:
+      # fetches pinned u-boot + arm-trusted-firmware
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      # Fail fast on inconsistent release inputs before spending a long build on them.
+      - name: Validate release inputs
+        if: inputs.create_release
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [ -z "$RELEASE_TAG" ]; then
+            echo "::error::release_tag is required when create_release is set"
+            exit 1
+          fi
+          if [[ ! "$RELEASE_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "::error::release_tag '$RELEASE_TAG' uses characters outside letters/digits/dot/dash/underscore"
+            exit 1
+          fi
+
+      - name: Download ubuntu-base rootfs
+        run: |
+          mkdir -p downloads
+          curl -fL --retry 3 -o downloads/ubuntu-base-26.04.1-base-arm64.tar.gz \
+            https://cdimage.ubuntu.com/ubuntu-base/releases/26.04/release/ubuntu-base-26.04.1-base-arm64.tar.gz
+          echo "5a1906794ced63a71a8119c3f211ef5f0bbe0a243001b4bbd41fdf80c5b219fd  downloads/ubuntu-base-26.04.1-base-arm64.tar.gz" | sha256sum -c -
+
+      # Cross-compiles TF-A BL31 and U-Boot in a Docker container; artifacts land in
+      # build/uboot/u-boot-sunxi-with-spl.bin. The script builds the container image on
+      # demand and defaults JOBS to nproc.
+      - name: Build TF-A BL31 + U-Boot
+        run: ./docker/run.sh
+
+      # Assembles the TF card image in an arm64 container (native arm64 runner so no qemu
+      # binfmt needed) and produces build/orangepi-zero3-ubuntu-26.04.img. The script
+      # enforces 16 post-build assertions and logs to build/img-build.log.
+      - name: Build TF card image
+        run: ./docker/run-card.sh
+
+      # Release asset first (default dict, 2 threads = fast); the 512Mi-dict
+      # artifact pass (<500M) only after the release is out.
+      - name: Compress release asset
+        if: inputs.create_release
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          cd build
+          xz -9e --threads=2 -k -v orangepi-zero3-ubuntu-26.04.img
+          mv orangepi-zero3-ubuntu-26.04.img.xz "orangepi-zero3-ubuntu-26.04-$RELEASE_TAG.img.xz"
+          sha256sum "orangepi-zero3-ubuntu-26.04-$RELEASE_TAG.img.xz" > "orangepi-zero3-ubuntu-26.04-$RELEASE_TAG.img.xz.sha256"
+
+      - name: Create release
+        if: inputs.create_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          cd build
+          gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "$RELEASE_TAG" --generate-notes \
+            "orangepi-zero3-ubuntu-26.04-$RELEASE_TAG.img.xz" \
+            "orangepi-zero3-ubuntu-26.04-$RELEASE_TAG.img.xz.sha256"
+
+      # Runner xz may lack --dict-size: --lzma2 filter syntax, then plain -9e.
+      - name: Compress artifact image
+        run: |
+          cd build
+          xz -9e --threads=1 --dict-size=512Mi -k -v orangepi-zero3-ubuntu-26.04.img \
+            || xz -9e --threads=1 --lzma2=dict=512Mi,preset=9e -k -v orangepi-zero3-ubuntu-26.04.img \
+            || xz -9e --threads=1 -k -v orangepi-zero3-ubuntu-26.04.img
+          sha256sum orangepi-zero3-ubuntu-26.04.img.xz > orangepi-zero3-ubuntu-26.04.img.xz.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: card-image
+          path: |
+            build/orangepi-zero3-ubuntu-26.04.img.xz
+            build/orangepi-zero3-ubuntu-26.04.img.xz.sha256
+          retention-days: 1
+
+      # Failure-only safety net: the image-build logs teed to build/*.log by
+      # the host-side wrappers would otherwise be lost with the runner
+      # workspace -- the success-only artifact step above does not run on failure.
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-logs
+          path: build/*.log
+          if-no-files-found: ignore
+          retention-days: 7

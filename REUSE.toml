@@ -1,0 +1,15 @@
+# REUSE configuration: central copyright / license declarations for files that
+# do not carry per-file headers. Spec: https://reuse.software
+# The license text itself lives in LICENSE (GPL-2.0-only, verbatim).
+version = 1
+
+[[annotations]]
+path = [
+  "README.md",
+  ".gitignore",
+  ".gitmodules",
+  "docker/**",
+  ".github/**",
+]
+SPDX-FileCopyrightText = "2026 CyberXHN"
+SPDX-License-Identifier = "GPL-2.0-only"

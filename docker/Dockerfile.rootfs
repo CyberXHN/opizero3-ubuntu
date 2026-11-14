@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (c) 2026 CyberXHN
+#
+# OrangePi Zero3 TF-card image build container (arm64; on amd64 hosts it runs
+# through qemu-user binfmt).
+# Host-side usage: docker/run-card.sh, or manually:
+#   docker build -q --platform linux/arm64 -f docker/Dockerfile.rootfs -t opizero3-card-builder:latest docker/
+#   docker run --rm --privileged --platform linux/arm64 -v <repo-root>:/work opizero3-card-builder:latest
+#
+# Base image: the arm64 manifest of ubuntu:24.04, digest-pinned in the FROM
+# below (multi-arch index digest; bump to pick up base updates).
+# Imaging toolchain: e2fsprogs (mkfs.ext4 -E offset/-d), fdisk (sfdisk),
+# util-linux (truncate/mount/umount), file; mount --bind inside the chroot needs
+# --privileged; mtools (mformat/mcopy/mdir) fills the ESP without privileges
+# (FAT has no mkfs -d: build a standalone temp image, then dd it into the disk image).
+# Note: the deb822 sources of an arm64 manifest image point at
+# ports.ubuntu.com/ubuntu-ports (not the amd64 archive/security URIs), so the
+# sed must include the ports branch, otherwise the mirror swap silently does
+# nothing and apt crawls over the official source under qemu emulation.
+FROM ubuntu@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
+
+# Optional apt mirror override; empty (default) keeps the official Ubuntu ports archive.
+ARG APT_MIRROR=""
+RUN if [ -n "$APT_MIRROR" ]; then \
+      sed -i \
+        -e "s|http://ports.ubuntu.com/ubuntu-ports|$APT_MIRROR|g" \
+        -e "s|https://ports.ubuntu.com/ubuntu-ports|$APT_MIRROR|g" \
+        -e "s|http://archive.ubuntu.com/ubuntu/|$APT_MIRROR/|g" \
+        -e "s|https://archive.ubuntu.com/ubuntu/|$APT_MIRROR/|g" \
+        -e "s|http://security.ubuntu.com/ubuntu/|$APT_MIRROR/|g" \
+        -e "s|https://security.ubuntu.com/ubuntu/|$APT_MIRROR/|g" \
+        /etc/apt/sources.list.d/ubuntu.sources; \
+    fi \
+ && apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      e2fsprogs fdisk util-linux file ca-certificates mtools device-tree-compiler \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV LC_ALL=C
+WORKDIR /work
+COPY build-card.sh /usr/local/bin/build-card.sh
+RUN chmod 755 /usr/local/bin/build-card.sh
+ENTRYPOINT ["/usr/local/bin/build-card.sh"]

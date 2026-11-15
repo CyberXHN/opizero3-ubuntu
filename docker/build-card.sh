@@ -1269,13 +1269,13 @@ DPKG_OPTS=(-o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef
 # DNS and the firstrun static DNS feed it, and the stub resolv.conf makes the
 # shipped image independent of any build-host resolver (the CI runner's
 # internal DNS cannot reach the board's LAN and must never ship).
-PKGS="ca-certificates linux-image-generic linux-modules-extra-generic grub-efi-arm64 initramfs-tools cloud-guest-utils iproute2 device-tree-compiler systemd-timesyncd systemd-resolved dbus zstd openssh-server sudo systemd-sysv iputils-ping bind9-dnsutils mtr-tiny netcat-openbsd traceroute tcpdump ethtool net-tools curl wget vim nano less tree file htop iotop lsof sysstat rsync bash-completion man-db unzip zip jq usbutils pciutils git python3-pip python3-venv docker.io docker-compose-v2 docker-buildx i2c-tools ir-keytable lm-sensors build-essential swig python3-dev linux-headers-generic gpiod locales network-manager v4l-utils cmake python3-spidev zram-tools bc toilet"
+PKGS="ca-certificates linux-image-generic linux-modules-extra-generic grub-efi-arm64 initramfs-tools cloud-guest-utils iproute2 device-tree-compiler systemd-timesyncd systemd-resolved dbus zstd openssh-server sudo systemd-sysv iputils-ping bind9-dnsutils mtr-tiny netcat-openbsd traceroute tcpdump ethtool net-tools curl wget vim nano less tree file htop iotop lsof sysstat rsync bash-completion man-db unzip zip jq usbutils pciutils git python3-pip python3-venv docker.io docker-compose-v2 docker-buildx i2c-tools ir-keytable lm-sensors build-essential swig python3-dev linux-headers-generic gpiod locales network-manager v4l-utils cmake python3-spidev zram-tools bc toilet figlet"
 if ! chroot "$ROOTFS" apt-get install -y --no-install-recommends "${DPKG_OPTS[@]}" $PKGS; then
   # The full set fails as a whole when linux-modules-extra-generic has no
   # matching build for the base release; retry without it.
   echo ">> install failed, retrying without linux-modules-extra-generic"
   chroot "$ROOTFS" apt-get install -y --no-install-recommends "${DPKG_OPTS[@]}" \
-    ca-certificates linux-image-generic grub-efi-arm64 initramfs-tools cloud-guest-utils iproute2 device-tree-compiler systemd-timesyncd systemd-resolved dbus zstd openssh-server sudo systemd-sysv iputils-ping bind9-dnsutils mtr-tiny netcat-openbsd traceroute tcpdump ethtool net-tools curl wget vim nano less tree file htop iotop lsof sysstat rsync bash-completion man-db unzip zip jq usbutils pciutils git python3-pip python3-venv docker.io docker-compose-v2 docker-buildx i2c-tools ir-keytable lm-sensors build-essential swig python3-dev linux-headers-generic gpiod locales network-manager v4l-utils cmake python3-spidev zram-tools bc toilet
+    ca-certificates linux-image-generic grub-efi-arm64 initramfs-tools cloud-guest-utils iproute2 device-tree-compiler systemd-timesyncd systemd-resolved dbus zstd openssh-server sudo systemd-sysv iputils-ping bind9-dnsutils mtr-tiny netcat-openbsd traceroute tcpdump ethtool net-tools curl wget vim nano less tree file htop iotop lsof sysstat rsync bash-completion man-db unzip zip jq usbutils pciutils git python3-pip python3-venv docker.io docker-compose-v2 docker-buildx i2c-tools ir-keytable lm-sensors build-essential swig python3-dev linux-headers-generic gpiod locales network-manager v4l-utils cmake python3-spidev zram-tools bc toilet figlet
 fi
 # Defensive: if cloud-initramfs-growroot still ended up installed (dependency
 # drag), purge it and rebuild the initrd; this image grows the root via the
@@ -1681,7 +1681,8 @@ for f in 00-header 10-help-text 50-motd-news 60-unminimize; do
   if [ -e "$ROOTFS/etc/update-motd.d/$f" ]; then fail "[13/16] stock Ubuntu MOTD script survived: $f"; fi
 done
 [ "$(readlink "$ROOTFS/etc/motd")" = "/var/run/motd" ] || fail "[13/16] /etc/motd is not the official /var/run/motd symlink"
-chroot "$ROOTFS" dpkg -s bc toilet >/dev/null 2>&1 || fail "[13/16] bc/toilet missing (login MOTD deps not installed?)"
+chroot "$ROOTFS" dpkg -s bc toilet figlet >/dev/null 2>&1 || fail "[13/16] bc/toilet/figlet missing (login MOTD deps not installed?)"
+[ -f "$ROOTFS/usr/share/figlet/standard.flf" ] || fail "[13/16] standard.flf missing (toilet -f standard renders blank; pam_motd drops the error)"
 echo "[13/16] ssh.service + NetworkManager (DHCP keyfile + globally-managed override) + resolved + docker preinstalled (enable links stripped, enable_docker.sh) + host key + user orangepi + core packages + official-style login MOTD in place"
 
 # [14/16] fstab / grub defaults / hostname.

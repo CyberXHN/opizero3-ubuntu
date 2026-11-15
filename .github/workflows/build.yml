@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # Copyright (c) 2026 CyberXHN
 # Build the OrangePi Zero3 (H618) TF card image: cross-compile TF-A BL31 + U-Boot
-# and assemble the Ubuntu rootfs image. Manual trigger; the image always lands in
-# a short-lived workflow artifact, and optionally in a GitHub Release on a custom
-# tag (create_release + release_tag inputs, default: artifact only).
+# and assemble the Ubuntu rootfs image. Manual trigger; the compressed image and
+# its .sha256 land in exactly one destination, mutually exclusive: a GitHub
+# Release on a custom tag (create_release + release_tag inputs) or, by default,
+# a short-lived workflow artifact. Both use the same 512Mi-dictionary compression.
 
 name: build
 
@@ -82,17 +83,23 @@ jobs:
       - name: Build TF card image
         run: ./docker/run-card.sh
 
-      # Release asset first (default dict, 2 threads = fast); the 512Mi-dict
-      # artifact pass (<500M) only after the release is out.
-      - name: Compress release asset
-        if: inputs.create_release
+      # One compression scheme for both destinations (512Mi dictionary,
+      # single thread). Runner xz may lack --dict-size: --lzma2 filter
+      # syntax, then plain -9e. Release mode renames the assets with the tag.
+      - name: Compress image
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
+          CREATE_RELEASE: ${{ inputs.create_release }}
         run: |
           cd build
-          xz -9e --threads=2 -k -v orangepi-zero3-ubuntu-26.04.img
-          mv orangepi-zero3-ubuntu-26.04.img.xz "orangepi-zero3-ubuntu-26.04-$RELEASE_TAG.img.xz"
-          sha256sum "orangepi-zero3-ubuntu-26.04-$RELEASE_TAG.img.xz" > "orangepi-zero3-ubuntu-26.04-$RELEASE_TAG.img.xz.sha256"
+          xz -9e --threads=1 --dict-size=512Mi -k -v orangepi-zero3-ubuntu-26.04.img \
+            || xz -9e --threads=1 --lzma2=dict=512Mi,preset=9e -k -v orangepi-zero3-ubuntu-26.04.img \
+            || xz -9e --threads=1 -k -v orangepi-zero3-ubuntu-26.04.img
+          sha256sum orangepi-zero3-ubuntu-26.04.img.xz > orangepi-zero3-ubuntu-26.04.img.xz.sha256
+          if [ "$CREATE_RELEASE" = "true" ]; then
+            mv orangepi-zero3-ubuntu-26.04.img.xz "orangepi-zero3-ubuntu-26.04-$RELEASE_TAG.img.xz"
+            mv orangepi-zero3-ubuntu-26.04.img.xz.sha256 "orangepi-zero3-ubuntu-26.04-$RELEASE_TAG.img.xz.sha256"
+          fi
 
       - name: Create release
         if: inputs.create_release
@@ -105,16 +112,8 @@ jobs:
             "orangepi-zero3-ubuntu-26.04-$RELEASE_TAG.img.xz" \
             "orangepi-zero3-ubuntu-26.04-$RELEASE_TAG.img.xz.sha256"
 
-      # Runner xz may lack --dict-size: --lzma2 filter syntax, then plain -9e.
-      - name: Compress artifact image
-        run: |
-          cd build
-          xz -9e --threads=1 --dict-size=512Mi -k -v orangepi-zero3-ubuntu-26.04.img \
-            || xz -9e --threads=1 --lzma2=dict=512Mi,preset=9e -k -v orangepi-zero3-ubuntu-26.04.img \
-            || xz -9e --threads=1 -k -v orangepi-zero3-ubuntu-26.04.img
-          sha256sum orangepi-zero3-ubuntu-26.04.img.xz > orangepi-zero3-ubuntu-26.04.img.xz.sha256
-
       - name: Upload artifact
+        if: ${{ !inputs.create_release }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: card-image

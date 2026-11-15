@@ -4,6 +4,8 @@
 
 This repository builds a bootable TF-card image for the OrangePi Zero3 (Allwinner H618) from source: a self-built mainline U-Boot + ARM Trusted Firmware boot chain, a GRUB EFI loader, and the stock Ubuntu arm64 kernel. No vendor kernel, no forked bootloader sources. Kernel upgrades reduce to `apt upgrade && reboot`; end-to-end validation of the full upgrade cycle is still pending.
 
+![Login MOTD on the OrangePi Zero3: stock Ubuntu 26.04 booted from the v2026.11.15 image, with the official-style welcome screen](assets/motd-zero3-26.04.png)
+
 ## How it boots
 
 The H618 boot ROM loads SPL from raw offset 8 KiB on the TF card. The board has no UEFI firmware; the first-stage loader is read from a raw offset, so the partition table is a plain MBR and the boot chain does not depend on it.

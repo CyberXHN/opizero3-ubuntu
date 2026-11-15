@@ -31,6 +31,7 @@ Verified on hardware:
 - Serial console on the debug header at 115200 8N1.
 - Wired Ethernet via DHCP (`NetworkManager`, manual 3.7 alignment: `nmcli`/`nmtui` manage the connection; systemd-networkd is disabled). Debian's NM default leaves every device "strictly unmanaged" on a netplan-less base; a same-name `/etc/NetworkManager/conf.d` drop-in (`unmanaged-devices=none`) re-enables management.
 - SSH available on first boot (`openssh-server`; root SSH stays at the default `prohibit-password`).
+- Official-style login MOTD: the welcome page at every SSH/console login (`OPI Zero3` ASCII-art logo + `Welcome to Orange Pi <release> Resolute with Linux <kernel>` + the load/memory/temperature/disk panel) comes from the official `orangepi-bsp-cli` script pair (`10-orangepi-header` + `30-orangepi-sysinfo`, Armbian-derived, GPL-2.0) vendored from official 1.0.8 (one marked adaptation: the OS release is read from `/etc/os-release` instead of a baked image version) and driven by the stock `pam_motd` `/etc/update-motd.d` mechanism. Nothing version-bearing is baked in: the displayed OS release and codename are parsed from `/etc/os-release` at login time (apt's `base-files` refreshes it on every point release) and the kernel from `uname -r`, so `apt upgrade` flows through to the welcome page without a rebuild. Ubuntu's stock MOTD scripts (`00-header`/`10-help-text`/`50-motd-news`/`60-unminimize`) are removed, as the official bsp postinst does for the first two.
 - First-boot root partition auto-grow: a oneshot service runs `growpart` + `resize2fs`, then disables itself.
 - First-run identity reset: SSH host keys and machine-id are regenerated on the first boot, so every flashed card gets a unique identity (official `orangepi-firstrun` alignment).
 - Optional first-run network configuration via `orangepi_first_run.txt` (see [First-run configuration](#first-run-configuration) below).
@@ -65,6 +66,7 @@ The official OrangePi Zero3 user manual, chapter 3 (Debian/Ubuntu server), is th
 | 3.6 rootfs 扩容 | ✓ first-boot auto-grow |
 | 3.7 网络测试 | ✓ NetworkManager (`nmcli`/`nmtui`) as in the manual, plus `iputils-ping`/`dnsutils`/`mtr-tiny`/`traceroute`; the Debian globally-unmanaged NM default is overridden via a same-name /etc conf.d drop-in; the WiFi subsections are N/A (no mainline driver for UWE5622) |
 | 3.8 SSH 登录 | ✓ `openssh-server` enabled |
+| 3.8 SSH 登录欢迎页 | ✓ official `10-orangepi-header` + `30-orangepi-sysinfo` (toilet logo + live sysinfo panel) + `/etc/orangepi-release` identity; the OS release/kernel shown are parsed live from `/etc/os-release`/`uname -r`, so apt upgrades flow through |
 | 3.9 HDMI / 3.12 音频 | ✗ mainline DT has no display pipeline (known limitation) |
 | 3.10 蓝牙 | ✗ UWE5622 has no mainline driver |
 | 3.11 USB 测试 | ✓ `usbutils`/`pciutils`/`v4l-utils` preinstalled |
@@ -237,3 +239,4 @@ The build scripts and repository tooling are licensed GPL-2.0-only; `LICENSE` ca
 - ARM Trusted Firmware — BL31 for `sun50i_h616`.
 - Ubuntu — the `ubuntu-base` rootfs and the arm64 generic kernel.
 - orangepi-xunlong — upstream source of `orangepi_zero3_defconfig`.
+- Armbian — origin of the official login-MOTD scripts (`10-orangepi-header`/`30-orangepi-sysinfo` carry the Armbian GPL-2.0 copyright header).

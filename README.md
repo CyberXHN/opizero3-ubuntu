@@ -2,7 +2,7 @@
 
 [![build](https://github.com/CyberXHN/opizero3-ubuntu/actions/workflows/build.yml/badge.svg)](https://github.com/CyberXHN/opizero3-ubuntu/actions/workflows/build.yml)
 
-This repository builds a bootable TF-card image for the OrangePi Zero3 (Allwinner H618) from source: a self-built mainline U-Boot + ARM Trusted Firmware boot chain, a GRUB EFI loader, and the stock Ubuntu arm64 kernel. No vendor kernel, no forked bootloader sources. Kernel upgrades reduce to `apt upgrade && reboot`; end-to-end validation of the full upgrade cycle is still pending.
+This repository builds a bootable TF-card image for the OrangePi Zero3 (Allwinner H618) from source: a self-built mainline U-Boot + ARM Trusted Firmware boot chain, a GRUB EFI loader, and the stock Ubuntu arm64 kernel. No vendor kernel, no forked bootloader sources. The target use case is a headless server; the author's board is the 4 GB RAM variant, the only hardware this image has been validated on — other memory variants are untested. Kernel upgrades reduce to `apt upgrade && reboot`; end-to-end validation of the full upgrade cycle is still pending. Prebuilt images are attached to [Releases](https://github.com/CyberXHN/opizero3-ubuntu/releases) — download one and skip straight to [Flash](#flash).
 
 ![Login MOTD on the OrangePi Zero3: stock Ubuntu 26.04 booted from the v2026.11.15 image, with the official-style welcome screen](assets/motd-zero3-26.04.png)
 
@@ -28,23 +28,21 @@ Card layout (MBR label, 512-byte sectors):
 
 ## What works
 
-Verified on hardware:
+Verified on real hardware (OrangePi Zero3, 4 GB RAM variant):
 
 - Serial console on the debug header at 115200 8N1.
-- Wired Ethernet via DHCP (`NetworkManager`, manual 3.7 alignment: `nmcli`/`nmtui` manage the connection; systemd-networkd is disabled). Debian's NM default leaves every device "strictly unmanaged" on a netplan-less base; a same-name `/etc/NetworkManager/conf.d` drop-in (`unmanaged-devices=none`) re-enables management.
+- Wired Ethernet via DHCP, managed by NetworkManager (`nmcli`/`nmtui`).
 - SSH available on first boot (`openssh-server`; root SSH stays at the default `prohibit-password`).
-- Official-style login MOTD: the welcome page at every SSH/console login (`OPI Zero3` ASCII-art logo + `Welcome to Orange Pi <release> Resolute with Linux <kernel>` + the load/memory/temperature/disk panel) comes from the official `orangepi-bsp-cli` script pair (`10-orangepi-header` + `30-orangepi-sysinfo`, Armbian-derived, GPL-2.0) vendored from official 1.0.8 (one marked adaptation: the OS release is read from `/etc/os-release` instead of a baked image version) and driven by the stock `pam_motd` `/etc/update-motd.d` mechanism. Nothing version-bearing is baked in: the displayed OS release and codename are parsed from `/etc/os-release` at login time (apt's `base-files` refreshes it on every point release) and the kernel from `uname -r`, so `apt upgrade` flows through to the welcome page without a rebuild. Ubuntu's stock MOTD scripts (`00-header`/`10-help-text`/`50-motd-news`/`60-unminimize`) are removed, as the official bsp postinst does for the first two.
-- First-boot root partition auto-grow: a oneshot service runs `growpart` + `resize2fs`, then disables itself.
-- First-run identity reset: SSH host keys and machine-id are regenerated on the first boot, so every flashed card gets a unique identity (official `orangepi-firstrun` alignment).
+- Official-style login MOTD — logo, `Welcome to Orange Pi` line and system-info panel at every SSH/console login, with the OS release and kernel parsed live from `/etc/os-release`/`uname -r` so `apt upgrade` refreshes the page without a rebuild.
+- First-boot root partition auto-grow (oneshot `growpart` + `resize2fs`, then disables itself).
+- Per-card identity: SSH host keys and machine-id are regenerated on the first boot.
 - Optional first-run network configuration via `orangepi_first_run.txt` (see [First-run configuration](#first-run-configuration) below).
-- Green status LED heartbeat and red power LED off: the DTB is patched at build time and a oneshot service reasserts the triggers at runtime; after a kernel upgrade the service re-applies the whole hardware DTB patch (LED triggers, spi0 spidev, IR enable) in place, so the fix self-repairs.
-- Zram swap: 50% of RAM via `zram-tools` (lzo-rle, priority 5, `page-cluster=0`, zswap off — official `orangepi-zram-config` values), journald capped at 20M like the official setup.
-- Logs: `/var/log` is a tmpfs mount (100M, `nosuid`) instead of the official image's zram-backed ramlog; the `opizero3-varlog-journal` oneshot recreates `/var/log/journal` on the tmpfs at every boot so journald keeps its persistent-mode path. Logs live in RAM and do not survive reboots.
-- Time synchronization via `systemd-timesyncd` (the board has no battery-backed RTC).
-- DNS via `systemd-resolved` (stub listener): DHCP-provided DNS and the first-run static `FR_net_static_dns` are both consumed automatically; the shipped `/etc/resolv.conf` is the stub symlink, so no build-host resolver can leak into the image.
-- Daily tooling baked in: network diagnostics (`iputils-ping`, `dnsutils`, `mtr-tiny`, `netcat-openbsd`, `traceroute`, `tcpdump`, `ethtool`, `net-tools`), editors and file tools (`vim`, `nano`, `less`, `tree`, `file`, `rsync`, `zip`/`unzip`, `jq`), monitoring (`htop`, `iotop`, `lsof`, `sysstat`), and `curl`, `wget`, `git`, `man-db`, `bash-completion`, `usbutils`, `pciutils`, `python3-pip`, `python3-venv`.
-- Docker preinstalled and disabled by default (`docker.io` + `docker-compose-v2` + `docker-buildx`, so `docker compose` and BuildKit builds work out of the box; `orangepi` already in the `docker` group, `enable_docker.sh` flips the stack on) — manual 3.24. The official image ships the docker-ce repo stack (27.1.1 + compose/buildx plugins); this image installs the Ubuntu packages, at a newer engine version.
-- Manual ch.3 hardware features: `/dev/spidev0.0` (spi0 DTB patch), the IR receiver (`ir@7040000` DTB patch + `ir-keytable`), the hardware watchdog (`sunxi_wdt` loaded via modules-load, `/dev/watchdog`, `watchdog_test` shell equivalent of the vendor binary), `sensors` (`lm-sensors`) over the four H618 thermal zones, `gpiod` for 26-pin GPIO via the mainline chardev interface, `i2c-tools`, `v4l-utils` (`v4l2-ctl`), `cmake`, `python3-spidev`, the unique chip ID via the SID nvmem (`/sys/bus/nvmem/devices/sunxi-sid0/nvmem`), and pre-generated `en_US.UTF-8` + `zh_CN.UTF-8` locales.
+- Green status LED heartbeat, red power LED off — build-time DTB patch plus a runtime service that re-applies it after kernel upgrades, so the fix self-repairs.
+- Zram swap (50% of RAM, lzo-rle, priority 5, zswap off — official values), journald capped at 20M.
+- Time synchronization via `systemd-timesyncd` (the board has no battery-backed RTC); DNS via `systemd-resolved`, consuming DHCP-provided or first-run static DNS.
+- Daily tooling preinstalled: network diagnostics (`ping`, `dig`, `mtr`, `traceroute`, `tcpdump`), editors and file tools (`vim`, `nano`, `less`, `jq`, `rsync`), monitoring (`htop`, `iotop`, `lsof`, `sysstat`), and `curl`, `wget`, `git`, `python3-pip`/`python3-venv`.
+- Docker preinstalled but disabled by default — `docker compose` and BuildKit builds work out of the box once `enable_docker.sh` flips the stack on.
+- Manual ch.3 hardware features: `/dev/spidev0.0`, IR receiver (`ir-keytable`), hardware watchdog (`/dev/watchdog`), `sensors` over the four H618 thermal zones, 26-pin GPIO via `gpiod`, `i2c-tools`, `v4l2-ctl`, chip ID via the SID nvmem, and pre-generated `en_US.UTF-8` + `zh_CN.UTF-8` locales.
 - Kernel headers preinstalled (`linux-headers-generic`), so DKMS and out-of-tree modules build out of the box.
 
 ## Known limitations
@@ -60,35 +58,12 @@ Verified on hardware:
 
 ## User manual alignment
 
-The official OrangePi Zero3 user manual, chapter 3 (Debian/Ubuntu server), is the reference for this image's user-facing features. Current alignment:
+The official OrangePi Zero3 user manual, chapter 3 (Debian/Ubuntu server), is the reference for this image's user-facing features. In short:
 
-| Manual section | Status in this image |
-| --- | --- |
-| 3.5 板载 LED | ✓ build-time DTB patch + runtime self-heal service |
-| 3.6 rootfs 扩容 | ✓ first-boot auto-grow |
-| 3.7 网络测试 | ✓ NetworkManager (`nmcli`/`nmtui`) as in the manual, plus `iputils-ping`/`dnsutils`/`mtr-tiny`/`traceroute`; the Debian globally-unmanaged NM default is overridden via a same-name /etc conf.d drop-in; the WiFi subsections are N/A (no mainline driver for UWE5622) |
-| 3.8 SSH 登录 | ✓ `openssh-server` enabled |
-| 3.8 SSH 登录欢迎页 | ✓ official `10-orangepi-header` + `30-orangepi-sysinfo` (toilet logo + live sysinfo panel) + `/etc/orangepi-release` identity; the OS release/kernel shown are parsed live from `/etc/os-release`/`uname -r`, so apt upgrades flow through |
-| 3.9 HDMI / 3.12 音频 | ✗ mainline DT has no display pipeline (known limitation) |
-| 3.10 蓝牙 | ✗ UWE5622 has no mainline driver |
-| 3.11 USB 测试 | ✓ `usbutils`/`pciutils`/`v4l-utils` preinstalled |
-| 3.13 红外接收 | ✓ DTB `ir@7040000` status=okay + `ir-keytable` |
-| 3.14 温度传感器 | ✓ `lm-sensors` (`sensors`) over the cpu/gpu/ddr/ve thermal zones; raw sysfs zones also readable |
-| 3.17 / 3.20 wiringOP(-Python) | on demand: `git`/`build-essential`/`swig`/`python3-dev` preinstalled; vendor-oriented tool, prefer `gpiod` on mainline |
-| 3.18 GPIO/I2C/UART/SPI | partial: GPIO ✓ (`gpiod` chardev), SPI ✓ (`/dev/spidev0.0` DTB patch + `python3-spidev`; the vendor `spidev_test` binary is not packaged), UART: serial console ✓ (`ttyS0`); 26-pin I2C/PWM/extra-UART ✗ (need DT overlays) |
-| 3.21 硬件看门狗 | ✓ `sunxi_wdt` via modules-load, `/dev/watchdog`, `watchdog_test` shell equivalent preinstalled |
-| 3.22 chipid | equivalent: SID nvmem (`cat /sys/bus/nvmem/devices/sunxi-sid0/nvmem`) — the vendor sysfs interface does not exist on mainline |
-| 3.23 Python | ✓ `python3`/`pip`/`venv` preinstalled |
-| 3.24 Docker | ✓ preinstalled (engine + `docker compose` + buildx) + disabled by default + `enable_docker.sh` shipped + `orangepi` in the `docker` group; official ships docker-ce 27.1.1 + compose/buildx plugins from the CE repo, we ship Ubuntu's docker.io 29.1.3 + compose-v2 + buildx |
-| 3.25-3.28, 3.31, 3.32 (HomeAssistant/OpenCV/宝塔/face_recognition/QT/ROS) | on demand: network + `git`/`curl`/`build-essential`/`cmake`/`python3-venv` prerequisites all present |
-| 3.29 中文环境 | ✓ `en_US.UTF-8` + `zh_CN.UTF-8` locales pre-generated (IME is desktop-only, N/A) |
-| 3.33 内核头文件 | ✓ `linux-headers-generic` preinstalled |
-| 3.34 编程语言 | ✓ C/C++/Make via `build-essential`, Python preinstalled; Java/Go etc. install on demand |
-| 3.35 上传文件 | ✓ `rsync`/`scp` |
-| 3.36 开关机 logo | ✗ GRUB boot chain, no vendor logo path |
-| 3.37 opi-bkimg 备份 | ✗ not implemented; `dd` from a card reader works |
-| 3.38 Overlayroot | on demand (`apt install overlayroot`) |
-| 3.39 开关机 | ✓ standard systemd |
+- **Works**: serial console, wired Ethernet (`nmcli`/`nmtui`), SSH with the official-style welcome page, on-board LED, first-boot rootfs auto-grow, SPI, IR receiver, hardware watchdog, thermal sensors, 26-pin GPIO (`gpiod`), chip ID (SID nvmem), Python, Docker, kernel headers, zh_CN locale, `rsync`/`scp`.
+- **Partial**: 26-pin I2C/PWM and extra UARTs need DT overlays (not implemented); `wiringOP` targets the vendor kernel — prefer `gpiod`.
+- **Not supported**: on-board WiFi/BT (UWE5622), HDMI/audio (no mainline display pipeline), boot/shutdown logo, `opi-bkimg` (use `dd`).
+- **On demand**: heavier stacks (HomeAssistant, OpenCV, QT, ROS, …) — network plus `git`/`curl`/`build-essential`/`cmake`/`python3-venv` prerequisites are preinstalled.
 
 ## Requirements
 
@@ -113,13 +88,16 @@ cd opizero3-ubuntu
 Compress and hash for distribution:
 
 ```
-xz -9e --threads=1 --dict-size=384Mi build/orangepi-zero3-ubuntu-26.04.img
+xz -9e --threads=1 --dict-size=512Mi build/orangepi-zero3-ubuntu-26.04.img
 sha256sum build/orangepi-zero3-ubuntu-26.04.img.xz > build/orangepi-zero3-ubuntu-26.04.img.xz.sha256
 ```
 
 ## Flash
 
+Download the latest image and its `.sha256` from [Releases](https://github.com/CyberXHN/opizero3-ubuntu/releases) — assets carry a version tag (`…-v2026.11.15.img.xz`) — or build your own (see [Build](#build)); adjust the file names below accordingly. Verify, then flash:
+
 ```
+sha256sum -c orangepi-zero3-ubuntu-26.04.img.xz.sha256
 xzcat orangepi-zero3-ubuntu-26.04.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 
@@ -169,7 +147,7 @@ Every variable is optional; an empty value (or a missing `docker/local.env`) mea
 
 ## CI
 
-The GitHub Actions workflow `build` (`.github/workflows/build.yml`) runs on `ubuntu-24.04-arm` native arm64 runners, which are free for public repositories. The `ubuntu-base` tarball is fetched from the official URL (https://cdimage.ubuntu.com/ubuntu-base/releases/26.04/release/ubuntu-base-26.04.1-base-arm64.tar.gz) and pinned by SHA256 (`5a1906794ced63a71a8119c3f211ef5f0bbe0a243001b4bbd41fdf80c5b219fd`). Runs are triggered manually from the Actions tab (workflow dispatch). The compressed image plus its `.sha256` — one compression scheme everywhere (512Mi dictionary, single thread) — goes to exactly one destination, mutually exclusive: by default a 1-day workflow artifact; with **create_release** checked in the dispatch form, a GitHub Release on the custom tag given in **release_tag** (create/push it yourself beforehand or the job tags the built commit) and no artifact. Release assets are named with the tag — `orangepi-zero3-ubuntu-26.04-v2026.11.15.img.xz` — so files from different releases stay distinguishable; the `.sha256` companion is generated under the same name so `sha256sum -c` works unchanged. Every build step streams its full output to the console: the container image builds are teed to `build/*.log` and additionally uploaded as a `build-logs` artifact when the run fails, and both container build scripts run with `set -x` command tracing (`DEBUG=1`, see the variable table above). Every external input — the tarball, the Docker base image, the workflow actions and the apt package set — is pinned; see [Build reproducibility and version pinning](#build-reproducibility-and-version-pinning).
+The `build` workflow (`.github/workflows/build.yml`) runs on free native arm64 runners (`ubuntu-24.04-arm`) and is triggered manually from the Actions tab. The compressed image plus its `.sha256` goes to exactly one destination: by default a 1-day workflow artifact; with **create_release** checked in the dispatch form, a GitHub Release on the **release_tag** tag instead, with version-tagged asset names (`orangepi-zero3-ubuntu-26.04-v2026.11.15.img.xz`) so files from different releases stay distinguishable. Build logs are teed to `build/*.log` and uploaded as a `build-logs` artifact when a run fails. Every external input is pinned; see [Build reproducibility and version pinning](#build-reproducibility-and-version-pinning).
 
 ## Build reproducibility and version pinning
 
@@ -184,23 +162,22 @@ Every external input of the build is pinned so that two runs of the workflow on 
 | GitHub Actions | full commit SHAs: `actions/checkout@v7.0.1` (`3d3c42e5aac5ba805825da76410c181273ba90b1`), `actions/upload-artifact@v7.0.2` (`cf430e030ddbb5b0abf93d22962f4752f3646cd9`) | `.github/workflows/build.yml` |
 | apt packages in the rootfs | `APT_SNAPSHOT=20261113T030400Z` | `.github/workflows/build.yml`, top-level `env` |
 
-`APT_SNAPSHOT` is the pin that covers the actual image content. [snapshot.ubuntu.com](https://snapshot.ubuntu.com) publishes an immutable snapshot of the Ubuntu archive every day, addressed by a UTC timestamp in `YYYYMMDDTHHMMSSZ` form; the `env` constant in `build.yml` names the one the build uses. `docker/build-card.sh` points the chroot's apt at that frozen state for its `apt update` / `apt install`, so the kernel (`linux-image-generic` meta-package) and every other package installed into the rootfs resolve exactly as they did on that UTC date. Unset — for instance in local runs that don't provide it — the chroot apt runs against the live repositories instead.
+`APT_SNAPSHOT` is the pin that covers the actual image content. [snapshot.ubuntu.com](https://snapshot.ubuntu.com) publishes an immutable daily snapshot of the Ubuntu archive, addressed by a UTC timestamp in `YYYYMMDDTHHMMSSZ` form; `docker/build-card.sh` points the chroot's apt at that frozen state, so the kernel and every installed package resolve exactly as they did on that UTC date. Unset — for instance in local runs — the chroot apt runs against the live repositories instead.
 
-Scope of the snapshot pin, stated precisely:
+Scope and failure mode:
 
-- chroot apt (rootfs kernel and packages): fully effective on any host architecture — the rootfs sources point at `archive.ubuntu.com`, and for 26.04 (resolute) the arm64 packages live in the main archive.
-- U-Boot toolchain container (`docker/Dockerfile`): gets the same snapshot id. On amd64 hosts the base image's apt sources point at the archive, so the toolchain install is pinned as well; on arm64 hosts (the CI runner) the noble base image's sources point at `ports.ubuntu.com`, which snapshot.ubuntu.com does not serve (401) and apt does not map — the snapshot configuration is a harmless no-op there, and the toolchain packages float with the digest-pinned base image (low risk).
-- Card-image container (`docker/Dockerfile.rootfs`): always arm64, so the same no-op applies; it takes no snapshot argument.
-- The flashed board: the `50snapshot` apt drop-in written into the chroot is deleted before image assembly, so the image's apt configuration is untouched — the board uses the normal live repositories and keeps tracking upstream as designed.
-- Precedence and failure mode: with `APT_SNAPSHOT` set it wins over `APT_MIRROR` / `APT_MIRROR_PORTS`; if the snapshot cannot be resolved the build aborts — there is no silent fallback to live repositories.
+- Chroot apt (the rootfs): fully effective on any host architecture.
+- The two build containers: on amd64 hosts the snapshot pins their toolchain too; on arm64 hosts (the CI runner) their base sources point at `ports.ubuntu.com`, which snapshot.ubuntu.com does not serve — a harmless no-op there, the toolchain floats with the digest-pinned base image (low risk).
+- The flashed board is untouched: the snapshot apt drop-in is deleted before image assembly, so the board keeps tracking the live repositories.
+- `APT_SNAPSHOT` wins over `APT_MIRROR` / `APT_MIRROR_PORTS`; if the snapshot cannot be resolved the build aborts — no silent fallback to live repositories.
 
 Bumping a pin:
 
-- ubuntu-base tarball: a new point release means a new exact file name and SHA256 in the download step of `build.yml`.
-- U-Boot / ARM Trusted Firmware: check out the desired commit in the submodule and commit the updated submodule pointer.
-- Docker base image: resolve the new multi-platform index digest (e.g. `docker buildx imagetools inspect ubuntu:24.04`) and replace the old digest in both Dockerfiles — bumping the tag while keeping the digest changes nothing.
-- GitHub Actions: replace the action reference with the full commit SHA of the new release tag.
-- `APT_SNAPSHOT`: set the constant to a newer `YYYYMMDDTHHMMSSZ` id — this single edit moves the kernel and the whole package set forward; that is the intended way to upgrade the image.
+- ubuntu-base tarball: new exact file name + SHA256 in the download step of `build.yml`.
+- U-Boot / ARM Trusted Firmware: commit the updated submodule pointer.
+- Docker base image: resolve the new index digest (e.g. `docker buildx imagetools inspect ubuntu:24.04`) and replace it in both Dockerfiles.
+- GitHub Actions: use the full commit SHA of the new release tag.
+- `APT_SNAPSHOT`: set a newer `YYYYMMDDTHHMMSSZ` id — the single intended way to move the kernel and the whole package set forward.
 
 ## Repository layout
 
